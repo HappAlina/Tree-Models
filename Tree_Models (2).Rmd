@@ -1,0 +1,891 @@
+---
+title: "Tree models"
+author: Alina Happ & Tobias Meyerhöfer
+date: "04.08.2021"
+output: 
+  rmdformats::readthedown
+
+      
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<div style="text-align: justify">
+
+# Einleitung
+
+Würde jemand von Ihnen verlangen, das Alter einer Ihnen unbekannten Person zu schätzen, so könnten Sie zunächst nur raten. "31 Jahre" würden Sie vielleicht sagen, wenn Sie Kenntnisse über das weltweite Durchschnittsalter besäßen (Statista 2021). Trotz beeindruckendem Fachwissen wären Sie sich dabei bewusst, mit Ihrer Aussage potenziell weit daneben zu liegen. Erst mit weiteren Informationen über die unbekannte Person können Sie ihre Antwort besser eingrenzen. Um diese Schätzung zu optimieren, wird jedoch ein Computer benötigt. 
+Um Vorhersagen zu treffen, ist eine der bekanntesten Methoden der Statistik die Lineare Regression. Machine Learning bietet jedoch weitere Ansätze, zu prognostizieren. In dieser Ausarbeitung sollen daher die sog. Tree-Based Methods näher beleuchtet werden.
+
+Zunächst sollen hierzu die beiden Formen von Decision Trees vorgestellt werden, die auch als CARTs (Classification and Regression Trees) bezeichnet werden (Hastie et al. 2001: 312). Sie stellen die Basis dar für die komplexeren Methoden, die daraufhin genauer erklärt werden sollen. Eine Methode ist das Bagging, die, wie auch ihre Spezialform des Random Forests, behandelt werden soll. Eine weitere Art der Optimierung des CARTs nennt sich Boosting. Die verschiedenen Methoden sollen zunächst erklärt und anschließend untereinander sowie mit der Linearen Regression verglichen werden. Dabei soll sowohl ein einfaches als auch ein auf dem Random Forest basierendes Lineares Modell gebildet werden.
+
+
+```{r, echo=FALSE, message= FALSE}
+#Daten einlesen
+setwd("C:/Users/tobi1/OneDrive/Bamberg/Universitaet/Statistical Machine Learning")
+#setwd("C:/Users/Alina/Desktop/Survey Statistik/Trees")
+library(foreign)
+library(dplyr)
+library(lattice)
+data <- read.dta("ZA5250_v2-1-0.dta")
+datak <- read.dta("ZA5250_v2-1-0.dta")
+```
+
+
+## Daten & Datenaufbereitung
+
+Für die Anwendung der Tree Modelle verwenden wir die ALLBUS-Daten von 2016. Der ALLBUS ist die "Allgemeine Bevölkerungsumfrage der Sozialwissenschaften" und wird alle zwei Jahre erhoben. Enthalten sind eine Vielzahl verschiedenster sozialwissenschaftlicher Variablen, woraus wir einige relativ willkürlich ausgewählt haben. Willkür ist möglich, da die Stärke der Tree Modelle ist, dass sie eigenständig Variablen selektieren und die besten auswählen.
+Der Einfachheit halber wird das Alter der Befragten (age) geschätzt. Es wurde sich gegen ein komplexes lantentes Konstrukt entschieden, da die Modelle im Fokus stehen und weniger die Sinnhaftigkeit dessen, was diese schätzen.
+Die unabhängigen Variablen sind: 
+
+| Variablenkürzel | Variable                                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| sex             | Geschlecht                                                                                                                         |
+| land            | Bundesland                                                                                                                         |
+| inc             | Einkommen                                                                                                                          |
+| mstat           | Heiratsstatus (Verheiratet zusammenlebend, verheiratet getrenntlebend, verwitwet, geschieden, ledig, Lebenspartner zusammenlebend) |
+| ingle           | Inglehartindex                                                                                                                     |
+| rd01            | Konfession                                                                                                                         |
+| siops08         | SIOPS08                                                                                                                            |
+| me08            | Tuerken: Machen mir Angst                                                                                                          |
+| di05            | Haushaltsnettoeinkommen                                                                                                            |
+| aq01            | Typ der Wohnung                                                                                                                    |
+| gs01            | Selbstbeschreibung des Wohnorts                                                                                                    |
+| pn12            | Verbundenheit zur Gemeinde                                                                                                         |
+| pn16            | Verbundheit zu Deutschland als Ganzem                                                                                              |
+| xs01            | Interview mit Befragtem alleine durchgeführt                                                                                       |
+| xr17            | Antwortbereitschaft des Befragten                                                                                                  |
+| S02             | Befr.: Erwerbstaetigkeit (erwerbstätig, früher erw., nie erw.)                                                                     |
+| S08             | Befr. berufstaetig? (Erwerbstätig, Arbeitslos, Schüler/ Student, Azubi, Erwerbsunfähig, Ruhestand, Hausfrau/-mann, anderes)        |
+| gkpol           | Groessenklasse der pol. Gemeinde                                                                                                   |
+| gr01            | Auslaenderanteil auf Kreisebene kateg.                                                                                             |
+| gr03            | Arbeitslosenquote auf Kreisebene                                                                                                   |
+| isei08          | ISEI08                                                                                                                             |
+| work            | Befragter berufstaetig? (ganztags, halbtags, nebenher, nicht)                                                                      |
+| educ            | Allgemeiner Schulabschluss                                                                                                         |
+
+Bei der Datenaufbereitung werden zunächst nur die Variablen in den Daten beibehalten, die für die Modelle verwendet werden. Desweiteren werden fehlende Werte und Fehlkodierungen entfernt, sodass eine Stichprobe von 2275 Beobachtungen bleibt. Anstatt Missing Data zu entfernen können diese auch durch Imputation "gefüllt" werden, dies greift allerdings zu weit. So oder so ist es wichtig, dass keine unvollständigen Beobachtungen im Modell sind.
+Für die Classification Trees wurde ein weiterer bereinigter Datensatz (datak) erstellt.
+
+```{r}
+#Nur verwendete Variablen im Datensatz 
+data <- select(data, age, sex, land, inc, mstat, 
+               ingle, rd01, siops08, me08, 
+               di05, aq01, gs01, 
+               pn12, pn16, xs01, xr17, S02, S08, gkpol, gr01, 
+               gr03, isei08, work, educ)
+
+data <- subset(data, age > 0)
+data <- subset(data, inc > 0)
+data <- subset(data, di05 > 0)
+data <- subset(data, siops08 != -32)
+data <- subset(data, isei08 != -32)
+data <- subset(data, S08 != "KEINE ANGABE")
+data <- subset(data, S08 != "KEIN ISSP")
+data <- subset(data, S08 != "DATENFEHLER")
+data <- subset(data, pn16 != "KEINE ANGABE")
+data <- subset(data, pn16 != "WEISS NICHT")
+data <- subset(data, aq01 != "KEINE ANGABE")
+data <- subset(data, me08 != "KEINE ANGABE")
+data <- subset(data, ingle != "NICHT GENERIERBAR")
+data <- subset(data, mstat != "KEINE ANGABE")
+data <- subset(data, S02 != "KEINE ANGABE")
+data <- subset(data, S02 != "DATENFEHLER")
+data <- subset(data, S02 != "KEIN ISSP")
+data <- subset(data, ingle != "NICHT GENERIERBAR")
+data <- subset(data, rd01 != "KEINE ANGABE")
+data <- subset(data, rd01 != "VERWEIGERT")
+data <- subset(data, pn12 != "KEINE ANGABE")
+data <- subset(data, pn12 != "WEISS NICHT")
+data <- subset(data, gkpol != "NICHT ENTHALTEN")
+data <- subset(data, work != "KEINE ANGABE")
+data <- subset(data, educ != "DATENFEHLER")
+data <- subset(data, educ != "KEINE ANGABE")
+```
+
+```{r, echo=FALSE}
+#Classificationdaten erstellen
+
+datak <- select(datak, age, sex, land, inc, mstat, 
+               ingle, rd01, siops08, me08, 
+               di05, aq01, gs01, 
+               pn12, pn16, xs01, xr17, S02, S08, gkpol, gr01, 
+               gr03, isei08, work, educ)
+datak <- subset(datak, age > 0)
+datak <- subset(datak, inc > 0)
+datak <- subset(datak, di05 > 0)
+datak <- subset(datak, siops08 != -32)
+datak <- subset(datak, isei08 != -32)
+datak <- subset(datak, S08 != "KEINE ANGABE")
+datak <- subset(datak, S08 != "KEIN ISSP")
+datak <- subset(datak, S08 != "DATENFEHLER")
+datak <- subset(datak, pn16 != "KEINE ANGABE")
+datak <- subset(datak, pn16 != "WEISS NICHT")
+datak <- subset(datak, aq01 != "KEINE ANGABE")
+datak <- subset(datak, me08 != "KEINE ANGABE")
+datak <- subset(datak, ingle != "NICHT GENERIERBAR")
+datak <- subset(datak, mstat != "KEINE ANGABE")
+datak <- subset(datak, S02 != "KEINE ANGABE")
+datak <- subset(datak, S02 != "DATENFEHLER")
+datak <- subset(datak, S02 != "KEIN ISSP")
+datak <- subset(datak, ingle != "NICHT GENERIERBAR")
+datak <- subset(datak, rd01 != "KEINE ANGABE")
+datak <- subset(datak, rd01 != "VERWEIGERT")
+datak <- subset(datak, pn12 != "KEINE ANGABE")
+datak <- subset(datak, pn12 != "WEISS NICHT")
+datak <- subset(datak, gkpol != "NICHT ENTHALTEN")
+datak <- subset(datak, work != "KEINE ANGABE")
+datak <- subset(datak, educ != "DATENFEHLER")
+datak <- subset(datak, educ != "KEINE ANGABE")
+```
+
+
+--- 
+***Exkurs: R Pakete***
+Für die folgenden Kapitel werden diese Pakete benötigt. Das Paket 'tictoc' wird zur Messung der Systemlaufzeit der Modelle verwendet. Mit dem 'modelr'-Paket werden der Root Mean Squared Error (RMSE) und der Mean Absolute Error (MAE) für die Modelle berechnet und die Ergebnisse werden gemeinsam mit der Systemlaufzeit gesammelt und am Ende zum Vergleich der Modelle verwendet.
+---
+
+
+```{r, message=FALSE}
+library(tidyverse)
+library(tidyr)
+library(mlbench)
+library(MASS)
+library(caret)
+library(ipred)
+library(tree)
+library(randomForest)
+library(rpart)
+library(tictoc)
+library(modelr)
+```
+
+# Decision Trees
+
+Decision Trees stellen eine - auch für Laien - sehr anschauliche Art der Entscheidungsfindung dar. Durch sie kann eine Prognose über eine ausgewählte abhängige Variable in Abhängigkeit zu ausgewählten unabhängigen Variablen gestellt werden. Die abhängige Variable kann entweder metrisch sein, sodass ein Regression Tree erstellt wird oder kategorial, wofür ein Classification Tree benötigt wird (Hastie et. al. 2001: 305 | James et al. 2013: 314). 
+Die Trees sind im Vergleich zu echten Bäumen in der Natur genau andersherum aufgebaut. Sie beginnen oben mit der Root (Wurzel), die eine Frage stellt, die mit "wahr" oder "falsch" beantwortet werden kann. Die Frage könnte zum Beispiel lauten: "Befindet sich Person X im Studium?". Je nach Beantwortung der Frage könnte dann ein unterschiedliches Alter für Person X geschätzt werden. Von der Wurzel gehen zwei Zweige aus, von denen einer den "wahr"-Pfad (links) und einer den "falsch"-Pfad (rechts) beschreibt. Diese Zweige können dann - wenn die Schätzung abgeschlossen wird - zu einem Leaf (Blatt) führen, welches das geschätzte Ergebnis für beide Fälle (im Studium oder nicht im Studium) beinhaltet. Soll die Schätzung noch nicht beendet werden, führen beide Zweige zu einer internal Node (Verzweigungspunkt), wo jeweils eine weitere Frage gestellt werden kann, die erneut mit "wahr" oder "falsch" beantwortet wird (James et al. 2013: 309).
+
+---
+**Exkurs: Trainings- & Testdaten**
+Um einen solchen Baum zu erstellen, wird der Datensatz in zwei Teile aufgeteilt - Trainingsdaten und Testdaten. Anhand der Trainingsdaten wird der Baum erstellt - also das Modell trainiert. Alle Entscheidungen, die zur Schätzung getroffen werden, basieren auf den Trainingsdaten. Sobald das Modell erstellt wurde, kann die Evaluierung stattfinden. Sie erfolgt durch die Testdaten. In unserem Beispiel wird dann für alle Observationen der Testdaten das Alter geschätzt und mit dem wahren Alter verglichen. Danach kann bewertet werden, wie gut das Modell in seiner Schätzung ist (James et al. 2013: 30).
+---
+
+```{r}
+set.seed(1)
+#Datensatz aufteilen in Trainings- und Testdaten
+train <-  sample(1:nrow(data), nrow(data)/2)
+test <-  - train
+
+training_data <- data[train,]
+testing_data <- data[test,]
+#Echter Wert der Testdaten
+observed <- testing_data$age
+```
+
+
+## Classification Trees
+
+Classification Trees werden im Gegensatz zu Regression Trees für qualitative Zielvariablen verwendet. In den aller meisten Fällen wird der Classification Tree wie im folgenden Beispiel auf eine binäre Zielvariable angewandt. Hierzu wird der Baum schrittweise von oben nach unten gebildet, indem jede Variable zunächst als Root getestet wird. Das Verfahren in den weiteren Schritten, welche Variablen für die Nodes gewählt werden, ist simultan. Schritt für Schritt werden alle Variablen als Root getestet, indem ein Entscheidungskriterium berechnet wird. Das beliebteste Entscheidungskriterium ist bei den Classification Trees die Gini-Impurity, Alternativen hierzu sind die Entropy und der Information Gain. 
+
+Die einfachste Formel für die Gini-Impurity lautet: 
+
+- Gini-Impurity for the Leafs= 1-(the probability of yes)² - (the probability of no)²
+
+- Gini-Impurity= weighted average of the Gini-Impurities for the leaf nodes
+
+Auf diese Weise wird jede mögliche Ausprägungsgrenze jeder einzelnen Variable getestet, wobei die Zuordnung zur linken Seite dafür steht, dass das Splitargument TRUE ist und die Zuordnung zur rechten Seite steht dafür, dass das Argument FALSE ist. So wird für jede Variable die beste Gini-Impurity gesucht und die Variable mit der geringsten "Unreinheit" in ihrer besten Splittung ausgewählt. Je eindeutiger auf den Seiten des Splits klassifiziert wird, desto besser ist die Gini-Impurity. Das Testen der einzelnen Grenzen der Variablen hängt von ihrem Skalenniveau ab:
+
+- Bei metrischen Variablen werden die Daten geordnet und jede Grenze zwischen vorkommenden Werten getestet, welche von diesen Grenzen die niedrigste Gini-Impurity aufweist.
+- Bei ordinalen Variablen werden nacheinander die Levels als Grenze getestet und die mit der niedrigsten Impurity ausgewählt.
+- Bei nominalen Daten werden alle Faktorkombinationen getestet und die Kombination mit der geringsten Impurity ausgewählt. Alle drei Skalenniveaus sind rechnerisch sehr aufwendig, jedoch stechen die nominalen Daten auf Grund ihrer Vielzahl an Kombinationsmöglichkeiten besonders heraus. 
+
+Sinkt die Gini-Impurity durch das Hinzufügen weiterer Variablen als Nodes nicht mehr um ein gewisses Mindestmaß ab, wird das Bilden des Trees abgebrochen. Dies ist insbesondere dafür relevant, um Overfitting zu vermeiden. Würde man den Baum unendlich wachsen lassen, würde dadurch, dass Variablen auch mehrfach vorkommen dürfen in einer Verzweigung, jede Beobachtung in den Trainingsdaten perfekt klassifiziert werden, außer es bestehen Beobachtungen die komplett gleiche Ausprägungen haben außer im Alter. Dies würde dazu führen, dass das Modell zwar die Trainingsdaten perfekt klassifiziert, das Modell jedoch auf weitere Daten nicht übertragbar ist. &#8594; Overfitting
+
+```{r, echo=FALSE}
+set.seed(1)
+datak$age50 <- (datak$age > 50)
+datak$age50 <- as.factor(datak$age50)
+train = sample(1:nrow(datak), nrow(datak)/2)
+test = - train
+training_datak=datak[train,]
+testing_datak=datak[test,]
+```
+
+### Anwendung in R
+In diesem Beispiel für einen Classification Tree wird geschätzt, ob Personen zum Zeitpunkt der Befragung über 50 Jahre alt waren oder nicht. Hierzu wird das 'tree'-Paket verwendet. Mit diesem Paket können beide Formen der Decision Trees erstellt werden. Eine Alternative zum 'tree'-Paket ist 'rpart', welches im Abschnitt "Regression Trees" angewendet wird. Das 'tree'-Paket ist vergleichsweise alt, was dazu führt, dass die Darstellungen recht rudimentär sind. Einerseits optisch und andererseits, dass die Faktorlevel nur mit ihren Kürzeln angegeben werden, statt der Beschriftungen. Diese Punkte sind im 'rpart'-Paket deutlich besser.
+
+```{r}
+treemodel <- tree(age50 ~ sex + land + inc + mstat + 
+                  ingle + rd01 + siops08 + me08 + 
+                  di05 + aq01 + gs01 + 
+                  pn12 + pn16 + xs01 + xr17 + 
+                  S02 + S08 + gkpol + gr01 + gr03 + educ + work + 
+                  isei08, data = training_datak)
+```
+
+Das Angenehme am 'tree'-Paket ist die Einfachheit des Codes. Der 'tree'-Befehl erkennt selbständig ob eine metrische oder binäre Variable vorliegt und die Spezifikationen sind wie beim lm()-Befehl, dass die abhängige Variable und die unabhängigen Variablen angegeben werden sowie der Datensatz.  Die Veranschaulichung des Trees geschieht wie im folgenden Beispiel. 
+
+```{r}
+plot(treemodel)
+text(treemodel)
+```
+
+Die Interpretation des Modells ist, bei der Root startend: 
+Die Berufstätigkeit nach verschiedenen Erwerbstätigkeiten ist als Root der entscheidendste Faktor. Hierbei zählen die Faktorstufen Erwerbtätig, Arbeitslos, Schüler, Student, Azubi (etc.), Erwerbsunfähig und ob jemand Hausfrau oder Hausmann ist. Gehört man keiner dieser Gruppen an, wird man direkt im Leaf rechts als über 50 klassifiziert. Entlang des linken Zweigs, ist der nächste entscheidende Faktor ob jemand ledig ist. Gehört man einer der Berufstätigkeitsgruppen aus der Root an und ist ledig, wird man als höchstens 50 klassifiziert. Ist man nicht ledig, wird rechts weiter gegangen. Dort entscheidet, ob man einer evangelischen Freikirche oder einer anderen nicht-christlichen Religionsgemeinschaft angehört. Falls ja, wird man auf höchstens 50 geschätzt, ansonsten entscheidet ob man erwerbstätig, Schüler, Student, Hausfrau oder Hausmann ist. Trifft dies zu, wird man auf höchstens 50 und ansonsten auf über 50 geschätzt. 
+Auf diese Weise wird Node für Node aufgeschlüsselt und die Zugehörigkeit zu den Leafs klassifiziert. Genauer nachzulesen sind die einzelnen Nodes, die Splitargumente und weitere Statistiken in folgender Tabelle. 
+
+```{r}
+print(treemodel)
+```
+
+Auf Grund der vielen Faktorvariablen im Modell ist die Interpretation bei diesem Tree besonders komplex, wie eine Beobachtung welchem Leaf zuzuordnen ist. Das Grundprinzip sollte jedoch verstanden worden sein, dass mit jedem Schritt die Beobachtungen immer weiter unterteilt werden.
+
+
+Um zu evaluieren, wie gut das Modell war, wurde eine eigene Funktion geschrieben, welche verschiedene Gütemaße berechnet.
+
+```{r}
+classify <- function(observed, predicted, method = "Model") {
+  tn <- table(predicted, observed)[1, 1]
+  tp <- table(predicted, observed)[2, 2]
+  fn <- table(predicted, observed)[1, 2]
+  fp <- table(predicted, observed)[2, 1]
+  sens <- tpr <- tp/(tp + fn)
+  spec <- tn/(tn + fp)
+  prec <- tp/(tp + fp)
+  fpr <- fp/(fp + tn)
+  acc <- (tp + tn)/sum(table(predicted,
+                             observed))
+  fmeasure <- (sens + prec)/2
+  AUC <- 1/2 - fpr/2 + tpr/2
+  return(data.frame(method, sens, prec,
+                    fmeasure, acc, AUC))
+}
+```
+
+Zum Berechnen der Gütemaße fehlen noch die beobachteten und geschätzten Werte, welche ebenfalls in einer Klassifikationstabelle dargestellt werden können.
+
+
+```{r}
+#Wahre Werte der Testdaten
+observed1 <- testing_datak$age50
+#Geschätzte Werte der Testdaten
+predicted <- predict(treemodel, newdata = testing_datak, type="class")
+# Klassifikationstabelle
+table(predicted, observed1)
+results <- NULL
+# Ergebnisse sammeln
+results <- rbind(results, 
+                 classify(predicted = predicted, observed = 
+                            observed1, 
+                          method = "Classification tree"))
+results
+```
+
+Mit einer Accuracy von 0,75 wurden 75% der Beobachtungen richtig klassifiziert. Das ist im Vergleich dazu, dass man mit 50-prozentiger Chance auch hätte raten können, recht gut. Wie gut die Klassifizierungen sind, hängt stark von den Daten ab. Dafür, dass die Variablen relativ willkürlich gewählt sind, hat das Modell eine recht starke Aussagekraft.
+
+
+## Regression Trees
+
+Ein Regression Tree unterscheidet sich dadurch von einem Classification Tree, dass er als abhängige Variable eine metrische Variable besitzt. Um einen Regression Tree zu bauen, muss zunächst für alle unabhängigen Variablen der beste Split gefunden werden - also der Punkt, an dem der Trainingsdatensatz aufgespalten werden soll. Bei Regression Trees wird dabei der Split verwendet, aus dem die geringste Residuenquadratsumme (RSS) $$ \sum\nolimits_{i=1}^n(y_i-\hat{y_i})^2 $$ resultiert. Das Vorgehen ähnelt sonst dem der Classification Trees. Liegt zum Beispiel eine metrische unabhängige Variable vor, werden die Daten nach dieser sortiert und testweise nach jeder Ausprägung in zwei Datensätze aufgeteilt. Für jeden Split wird anschließend die RSS berechnet. Der Split mit der geringsten Residuenquadratsumme wird als der beste klassifiziert. Dieses Verfahren wird für alle unabhängigen Variablen angewandt, bis für alle der beste Split gefunden wurde. Die Variable, die mit ihrem jeweiligen besten Split die geringste RSS aufweist, wird als Root verwendet. Der Datensatz wird an dieser Stelle aufgespalten. Für die jeweiligen Teildatensätze kann nun dieses Verfahren wiederholt werden, sodass weitere internal Nodes gefunden werden können und der Baum weiter wächst. Dieser Ansatz gilt als "greedy" (gierig), da immer nur schrittweise für jede neue Node die Residuenquadratsumme berechnet wird, aber nicht für alle möglichen Gesamtmodelle die sich ergiben könnten. Letztes gilt als technisch nicht durchführbar, weshalb auf die erste Version zurückgegriffen wird (James et al. 2013: 310, 311).
+
+### Anwendung in R
+
+Eine Möglichkeit einen Regression Tree in R zu erstellen, ist durch das Paket rpart und die gleichnamige Funktion. Alternativ existiert auch das tree-Paket und das party-Paket, wobei sich hier am rpart-Paket orientiert wird. An erster Stelle der Funktion wird die Formel des Modells spezifiziert. Wir wählen age (Alter) als abhängige Variable und lassen das Modell selbst die besten Variablen auswählen, geben also alle unsere Variablen frei, was durch den Punkt festgelegt wird. Als Daten werden die Trainingsdaten verwendet. Da es sich um einen Regression Tree handelt und die abhängige Variable metrisch ist, muss die Methode "anova" gewählt werden. Mit rpart können genauso Classification Trees erstellt werden, indem method="class" ausgewählt wird. In diesem Fall setze ich noch künstlich den Komplexitätsparameter cp runter. Das kann an dieser Stelle noch vernachlässigt werden und wird genauer erklärt, wenn es um die Themen Overfitting und Pruning geht. 
+
+```{r, eval=T}
+tic()
+rt <- rpart(age ~ . , data=training_data, method="anova", control=rpart.control(cp=0.005))
+toc(log=T, quiet=T)
+time_rt <- unlist(tic.log())
+tic.clearlog()
+print(rt)
+```
+
+Wenn das erstellte Modell angezeigt wird, erscheint zunächst die Anzahl der Daten (n=), auf die das Modell trainiert wurde. Darunter stehen die Überschriften der darauffolgenden "Spalten". Am Anfang jeder Zeile steht eine Zahl, die eine Art Rangordnung im Baum darstellt. Die (1) steht dabei für die Root und zeigt, Informationen über den Datensatz an, wenn noch keine Splits stattfanden. Der erste Split wird durch (2) und (3) repräsentiert, was sich auch an den Einrückungen erkennen lässt. Je weiter eine Zahl eingerückt wurde und je höher sie ist, desto weiter untergeordnet ist sie im Baummodell anzutreffen. An zweiter Stelle der Spalten steht der Name der Variable, durch die die Daten gespalten wurden (außer in der ersten Zeile der Root). 
+Hier werden die Befragten nach verschiedenen Erwerbskategorien aufgeteilt. Es wird unterschieden zwischen (2) erwerbstätig, arbeitslos, Schüler, Student, Azubi, erwerbsunfähig, Hausfrau-/ -mann. im Unterschied zu (3) im Ruhestand oder anderes.
+Hinter der Ausprägung befinden sich die Anzahl der Fälle des Datensatzes, die in diese Kategorie fallen, gefolgt von der Devianz und der Schätzung der abhängigen Variable (hier: Alter). Das Alter für die erste Gruppe (2) wird auf 43.6 geschätzt. Das der zweiten Gruppe (3) auf 72.1. 
+Am Ende mancher Zeilen steht ein Asterisk, der eine Leaf Node markiert.
+Genauere Informationen über jede einzelne Node kann - wenn erwünscht - durch den summary-Befehl erhalten werden.
+
+Übersichtlicher wird es, wenn die Ergebnisse in einem Baumdiagramm präsentiert werden. Die Funktion rpart.plot aus dem gleichnamigen Paket bietet eine Möglichkeit hierzu. 
+
+```{r}
+library(rpart.plot)
+rpart.plot(rt, fallen.leaves = F, faclen=7)
+```
+
+In der Root sieht man, dass das Alter ohne Split auf 52 geschätzt wird und dass zu dieser Schätzung 100 % der Beobachtungen verwendet wurden. Hier sieht man jeweils nur eine Gleichung, die als Frage zu interpretieren ist. 
+Bei einer Bejahung folgt die Person dem linken Pfad, andernfalls dem rechten. 
+Die weiteren Fragen werden dann so lange beantwortet, bis die Person eine Leaf Node erreicht hat. Auch dort beschreibt die erste Zahl die Schätzung des Alters und die zweite den Anteil der Trainingsdaten, der für diese Schätzung verwendet wurde. Ein lediger Azubi würde z. B. nach allen Fragen den linken Zweig nehmen und bei dem Leaf ganz links landen, wo 23 und 5% steht. Für ihn würde ein Alter von 23 Jahren geschätzt werden auf einer Basis von 5 % der Beobachtungen.
+
+Um anschließend zu erfassen, wie gut die Schätzung war, können verschiedene Prognosegütemaße herangezogen werden. In diesem Fall werden Root Mean Sqaure Error (RMSE) und Mean Absolute Error (MAE) berechnet. Der MAE beschreibt wie sehr die Schätzung durchschnittlich falsch lag. Bei MAE=10 lag die Schätzung also durchschnittlich um 10 Jahre daneben. Der RMSE ist eher schwierig zu interpretieren und wird stärker zum Modellvergleich verwendet. Durch die Quadrierung werden besonders schlechte Schätzungen hoch gewichtet. Unterscheiden sich MAE und RMSE stark, deutet dies auf viele schlechte Schätzungen hin (Chai et al. 2014: 1526-1529).
+
+```{r}
+library(modelr)
+rmse_rt <- rmse(rt, testing_data)
+mae_rt <- mae(rt, testing_data)
+
+results <- data.frame(methode = "Regression Tree", rmse = rmse_rt, MAE = mae_rt, Runtime = time_rt)
+results
+```
+
+Der MAE-Wert zeigt, dass die Schätzung im Schnitt um 7,7 Jahre daneben liegt. Beide Ergebnisse werden im Vergleich später erneut aufgegriffen.
+
+### Overfitting
+
+Das Verfahren könnte endlos angewandt werden, bis der Baum sehr groß ist, perfekt an die Trainingsdaten angepasst wurde und für diese eine genaue Vorhersage bietet. Das Problem ist jedoch, dass das Modell sich nicht für die Schätzung von neuen Daten eignet. Diese Art der zu starken Anpassung an die Trainingsdaten nennt sich Overfitting. Das Modell hat dann keine Verzerrung, aber große Varianz. Um dies zu vermeiden, wird der Datensatz nicht bis zur letzten Beobachtung geteilt, sondern nur, sofern der jeweilige Teildatensatz noch eine Mindestanzahl von Beobachtungen (z. B. 20 Beobachtungen) enthält (James et al. 2013: 311). Diese Mindestanzahl ist in der Literatur nicht festgeschrieben und die Empfehlungen unterscheiden sich. Sie sollte unter anderem an die Große des Datensatzes angepasst werden.
+
+Rpart hat außerdem weitere optionale Parameter. Diese können angegeben werden durch die Option control=rpart.control(). In der Klammer folgen dann die gewünschten Argumente. Dort lässt sich zum Beispiel die Mindestanzahl an Beobachtungen für einen weiteren Split festlegen. Standardmäßig ist minsplit=20 festgelegt. Alternativ oder auch gleichzeitig kann die Mindestanzahl an Observationen in den Leaves festgelegt werden. Der Default liegt bei minbucket=round(minsplit/3). Um weiterhin keine Splits durchzuführen, die kaum eine zusätzliche Erklärkraft der unabhängigen Variable bieten, gibt es einen complexity parameter (cp=0.01 per default), der bei jedem Split überschritten werden muss. Weitere Optionen lassen sich in der rpart.control R Documentation finden.
+
+---
+
+**Exkurs: Cross Validation**
+
+Zuvor wurde bereits erklärt, dass der Datensatz in Trainings- und Testdaten aufgeteilt wurde. Hierbei gibt es endlos verschiedene Möglichkeiten die Daten aufzuteilen. Einerseits kann sich der Anteil, der als Trainingsdaten verwendet werden soll, unterscheiden. Weiterhin kann jede Beobachtung einer der beiden Kategorien zugeordnet werden. Das Modell kann sich jedoch bei unterschiedlichen Trainingsdaten verändern, weshalb es wichtig ist, verschiedene Kombinationen zu berücksichtigen.
+Da die benötigte Rechenleistung für alle möglichen Kombinationen zu hoch wäre, werden die Beobachtungen vielmals zu Gruppen zusammengefasst. Häufig findet die sog. 10-Fold-Cross-Validation Anwendung. Hierbei werden alle Beobachtungen zufällig in 10 gleich große Gruppen aufgeteilt. Anschließend werden diese 10 Gruppen in Trainings- und Testdaten unterteilt, wobei alle möglichen Kombinationen ausprobiert werden (James et al. 2013: 178, 183-185). 
+
+---
+
+## Pruning 
+
+Auch mit der Einhaltung einer gewählten Mindestanzahl werden die Bäume tendenziell zu groß geschätzt und das Modell zu stark an die Trainingsdaten angepasst. Aus diesem Grund muss der Baum, nachdem er vollständig ausgewachsen ist, gestutzt werden. Dieses Verfahren weist eine bessere Schätzung auf, als wenn das Wachstum des Baumes an einer bestimmten Stelle gestoppt wird.
+Das Verfahren, was hier erklärt werden soll, nennt sich "Cost complexity pruning" oder auch "weakest link pruning".
+Zunächst wird ein voll ausgewachsener Baum mit den gesamten Trainingsdaten gebildet. Daraufhin wird dieser Baum gestutzt, indem in jedem Schritt ein Leaf entfernt wird, sodass eine Sequenz von immer kleiner werdenden Bäumen entsteht, bis nur noch ein Stumpf bleibt. Es soll der Baum ausgewählt werden der den geringsten Tree Score besitzt: $$ Tree Score = RSS + \alpha*|T| $$ RSS entspricht der Residuenquadratsumme, die für jeden Baum berechnet wird. T ist die Anzahl der Leaves und $\alpha$ ein Tuningparameter, der noch bestimmt werden muss. Gemeinsam bilden $\alpha$ * |T| einen Bestrafungsterm für die Komplexität eines Baumes. Wird $\alpha$ = 0 gewählt, würde der volle Baum ausgewählt werden. Wenn $\alpha$ jedoch erhöht wird, würde irgendwann der Baum mit einem Leaf weniger ausgewählt usw. Es gilt diese Schwellenwerte für $\alpha$ zu finden.
+Nun wird nur anhand von Trainingsdaten die Sequenz von einem vollen Baum zu einem einfachen Baumstumpf gebildet, wobei die zuvor berechneten $\alpha$ -Schwellenwerte verwendet werden. Auf jeden so entstandenen Baum werden die Testdaten angewendet und deren RSS berechnet. Der $\alpha$ -Wert, der zum Baum mit der geringsten RSS gehört, wird vermerkt. Dieser Vorgang wird nun für weitere Sets von Trainingsdaten wiederholt, bis alle Kombinationen von z. B.  10-Fold-Cross-Validation ausprobiert wurden. Es wurde für jede Kombination ein $\alpha$ -Wert vermerkt, von denen nun der verwendet werden soll, der am häufigsten auftrat. Dieser gilt als der endgültige Tuningparameter, der in die Formel des Tree Scores eingesetzt werden kann (James et al. 2013: 311-314).
+
+In R muss zunächst der optimale Komplexitätsparameter (cp) gefunden werden. Dieser wurde bei der ursprünglichen Erstellung des Regression Trees künstlich auf 0.005 gesetzt, was zu 8 Splits geführt hat. Wäre der cp bei 0.01 geblieben, hätte sich kein Pruning gelohnt, da der Tree schon die optimale Länge gehabt hätte. Dies ist jedoch nicht immer so, weshalb Pruning oft benötigt wird. Um die Technik des Prunings zu veranschaulichen, wurde der Baum also künstlich größer gebaut als mit den Grundeinstellungen von R. Wie bereits zuvor erwähnt, ist es ja auch besser, einen Baum möglichst hoch wachsen zu lassen und ihn nachträglich zu prunen. Es entstand also kein Nachteil durch diese Veränderung. Im Gegenteil, der Tree mit cp=0.01 wäre sogar laut xerror zu kurz gewesen.
+Mit der Funktion printcp() können die (10-fold-) cross-validated errors (xerror) identifiziert werden. Der niedrigste Fehler (xerror=0.27722) zeigt sich bei 4 Splits und einem zugehörigen cp von 0.0060327.
+
+```{r}
+printcp(rt)
+```
+
+Auch bei einem Plot kann man dies häufig erkennen, auch wenn die Werte in diesem Fall sehr stark beieinander liegen und der niedrigste nicht auf den ersten Blick zu sehen ist.
+
+```{r}
+plotcp(rt)
+```
+
+Der cp wird für das Pruning benötigt. Nach dem Pruning ist der Baum merklich kleiner und übersichtlicher geworden. Er ist jetzt weniger anfällig für overfitting.
+
+```{r}
+tic()
+pruned_rt <- prune(rt, cp=0.0060327)
+toc(log=T)
+time_pruned <- unlist(tic.log())
+tic.clearlog()
+pruned_rt
+```
+
+```{r}
+rpart.plot(pruned_rt, fallen.leaves=F, main="Pruned Regression Tree for age", faclen = 5)
+```
+
+Um zu testen, ob die Schätzung besser verlief als mit dem original Regression Tree, werden erneut RMSE und MAE herangezogen.
+```{r}
+rmse_pruned <- rmse(pruned_rt, testing_data)
+mae_pruned <- mae(pruned_rt, testing_data)
+
+results <- rbind(results, c("Pruned Regression Tree", rmse_pruned, mae_pruned, Runtime=time_pruned))
+results
+```
+
+Beim Vergleich lässt sich erkennen, dass beide Fehlermaße niedriger wurden. Das Pruning hat die Schätzung also verbessert.
+
+# Optimierungen der Decision Trees
+
+In diesem Abschnitt werden weiterentwickelte Modelle vorgestellt, welche auf den Decision Trees basieren. Die Modelle sind sowohl zur Klassifikation als auch zur Schätzung metrischer Variablen geeignet. Der Hauptunterschied der vorgestellten Modelle ist, ob diese auf abhängigen oder unabhängigen Decision Trees basieren. Beim Bagging und dessen Verbesserung, dem Random Forest, wird eine Vielzahl an unabhängigen Decision Trees durch die Verwendung eines Bootstraps gebildet. Hingegen wird beim Gradient Boosting eine Vielzahl an Decision Trees gebildet, die von vorherigen Decision Trees lernen. 
+
+Die Decision Trees bedürfen Verbesserungen, da diese auf Grund ihrer recht simplen Aufspaltung nach Kategorien eine hohe Modellvarianz erzielen. Zudem ist durch das schrittweise Bilden von oben nach unten nicht gesichert, dass der Baum die geringste Varianz hat, als mögliche andere Aufspaltungen. Hinzu kommt die große Anfälligkeit gegenüber anderen Daten. Würde man bspw. einen Decision Tree für die Testdaten erstellen, hätte dieser in den meisten Fällen einen ganz anderen Aufbau. All diese Nachteile der Decision Trees werden in ihren weiterentwickelten Modellen angegangen und verbessert. 
+
+
+## Bagging
+
+Bagging ist die Kurzform von Bootstrap Aggregating. Ein Bootstrap ist das Ziehen einer Vielzahl an Stichproben mit Zurücklegen aus den Daten, welche die Größe der ursprünglichen Daten haben. Um den Sinn dieses Verfahrens besser zu verstehen, ist das Zitat von James et al. (2013: 316) "Averaging a set of Observations reduces variance" hilfreich. In den meisten Fällen stehen nur die Beobachtungen innerhalb des vorhandenem Datensatzes zur Verfügung und durch den Bootstrap werden weitere Datensätze erzeugt, die zwar auf den selben Daten basieren, aber durch ihre "zufällige" Zusammensetzung die Varianz zwischen verschiedenen Messungen widerspiegeln sollen. 
+Das Aggregating, was zum Bagging führt, ist das Erstellen von Tree Modellen für jeden der Bootstrapdatensätze und das Mitteln der Schätzungen aller gebildeten Tree Modelle. Daraus folgt eine geringere Modellvarianz, als bei der Verwendung eines einzelnen Trees. 
+Zusätzlicher Vorteil was die Handhabbarkeit des Baggings betrifft: Das dazugehörige Maß des Out-of-bag-Errors, kurz OOB, ist bei großer Anzahl an Trees nahezu gleichwertig dem leave-one-out Cross-Validation Error (James et al. 2013: 318). Durch das Ziehen ohne Zurücklegen beim Bootstrap kommen Fälle in einzelnen Bootstrapdatensätzen gar nicht oder mehrfach vor. Es wurde festgestellt, dass in jedem Bootstrapdatensatz etwa 2/3 aller Fälle nur enthalten sind (James et al. 2013: 318). Auf diesem Bewusstsein basiert der OOB, dass jede Beobachtung, die in mindestens einem der Bootstrapdatensätze fehlt, mittels der Trees geschätzt wird, in denen die Beobachtung nicht enthalten war. Wie gut diese Schätzungen waren, wird gemittelt und daraus folgt der OOB-Error. 
+
+### Anwendung in R
+
+Zunächst werden die relevanten Pakete geladen.
+```{r}
+library(caret)       # for general model fitting
+library(e1071)       #for calculating variable importance
+library(ipred)       # for fitting bagged decision trees
+```
+
+In folgendem Bagging-Modell werden 100 Tree Modelle erstellt und gemittelt. Wie groß die Trees sind, wird durch die Parameter 'min.split' und 'cp' festgelegt. 'min.split' entscheidet, wie viele Beobachtungen in einem Node nötig sind, um weiter zu splitten. 'cp' steht für den Complexity Parameter und entscheidet, um welchen Faktor sich das Modell verbessern muss, um weiter gesplittet zu werden. In diesem Beispiel wurden die Parameter auf das Minimum der typischen Werte gesetzt, um möglichst tiefe Trees zu erhalten. Wie sinnhaft diese Werte sind, wird im Laufe des Kapitels geprüft. Häufig verwendete Werte sind für 'min.split' 5, 10 oder 20 und für 'cp' zwischen 0,01 und 0,1. Meist liegt die Anzahl der benötigten Bäume zwischen 50 und 500, häufig bei 100 bis 200. Mit größerer Anzahl an Trees sinkt die RMSE, wie zu Beginn des Kapitels beschrieben. Jedoch sinkt der RMSE im Verhältnis zu der zusätzlich benötigten Rechenpower nur gering, bzw. ab einer bestimmten Anzahl schwankt er nur noch um einen Wert. Welche Parameter am besten performen, kann mit verschiedenen Werten ausprobiert oder durch Tuning bestimmt werden. Auf das Tuning wird beim Random Forest und Gradient Boosting genauer eingegangen.  
+
+```{r}
+set.seed(1)
+tic()
+bagmodel <- bagging(age ~ ., data = training_data, nbagg= 100,
+                    coob = TRUE, 
+                    control= rpart.control(min.split = 5, cp= 0.01))
+toc(log=T, quiet=T)
+time_bag <- unlist(tic.log())
+library("modelr")
+bag_rmse <- rmse(bagmodel, testing_data)
+bag_rmse
+bag_mae <- mae(bagmodel, testing_data)
+bag_mae
+#Sammeln der Ergebnisse
+results <- rbind(results, c("Bagging OOB", bag_rmse, bag_mae, Runtime=time_bag))
+tic.clearlog()
+```
+Bei dem Modell wurden verschiedene Complexity Parameter und minimale Anzahlen an Beobachtungen ausprobiert. Dabei haben sich die gewählten als am besten herausgestellt. Wählt man anstatt 100 Trees 2000, sinkt der RMSE von 9.51 auf 9.49, was unwesentlich ist. Dafür steigt die Systemlaufzeit von wenigen Sekunden auf knapp über eine Minute. Wählt man weitere verschiedene Werte für die Anzahl an Trees, schwankt der Wert stets um +- 9.50. 
+Die Anzahl der Trees kann was Overfitting angeht sowohl beim Bagging als auch beim Random Forest frei gewählt werden, da diese Modelle im Gegensatz zum Gradient Boosting nicht dazu neigen. 
+
+
+### Variable Importance
+Um herauszufinden, welche Variable wie relevant für das Bagging-Modell ist, wird die Variable Importance verwendet. Die Variable Importance wird dadurch berechnet, inwiefern diese in den Tree Models durchschnittlich zu einer Senkung der RSS geführt hat. Ein hoher Wert bedeutet, dass die Variable relevant für das Modell ist und ein niedriger Wert bedeutet eine geringere Relevanz.
+
+```{r}
+#Variable Importance berechnen
+VI <- data.frame(var=names(training_data[,-1]), imp=varImp(bagmodel))
+
+#Variablen absteigend sortieren
+VI_plot <- VI[order(VI$Overall, decreasing=TRUE),]
+
+#Variable importance visualisieren
+barplot(VI_plot$Overall,
+        names.arg=rownames(VI_plot),
+        names= training_data$names,
+        horiz=FALSE,
+        col="steelblue",
+        ylab="Variable Importance",
+        xlab="Variablen",
+        main="Variable Importance des Baggings",
+        sub="                            Eigene Darstellung",
+        las=2)
+```
+
+Dabei wird deutlich, dass die Berufstätigkeit nach Art der Erwerbstätigkeit, der Heiratsstatus sowie die reine Erwerbstätigkeit die größte Variable Importance haben. Hingegen haben die Variablen Geschlecht, Inglehartindex und die Antwortbereitschaft der befragten Person die geringste Variable Importance.
+
+
+---
+
+**Exkurs: OOB-Error und Cross-Validation**
+Zum Abschluss des Baggings sollte gezeigt werden, dass der OOB-Error tatsächlich anstatt der leave-one-out Cross-Validation verwendet werden kann. Mit folgendem Code wird die leave-one-out Cross-Validation verwendet.
+
+bagmodel2 <- train(
+  age ~ .,
+  data = training_data,
+  method = "treebag",
+  trControl = trainControl(method = "LOOCV", number = 10),
+  nbagg = 100,  
+  control = rpart.control(minsplit = 2, cp = 0.01)
+)
+
+Das Problem und ebenfalls der Grund, weshalb der OOB-Error verwendet wird und nicht die leave-one-out Cross-Validation, ist: Die leave-one-out Cross-Validation benötigt so viel Rechnerkapazität, dass das Modell auch nach einigen Stunden nicht fertig geladen ist. Deshalb kann die Äquivalenz an dieser Stelle leider nicht gezeigt werden und es muss der Literatur vertraut werden (James et al. 2013: 318). Zusätzlich wäre es überraschend, wenn das Modell so viel besser sein würde, dass solch eine Beanspruchung der Rechnerkapazitäten akzeptabel ist.
+
+---
+
+## Random Forest
+
+Random Forest stellt eine Art des Baggings dar und ist eine Verbesserung dessen. Das Problem beim Bagging ist, dass sich die Bäume oft sehr stark ähneln, da es zum Beispiel einen sehr starken Prädiktor gibt, der bei (fast) jedem Bootstrap in die Root gelangt. Die Bäume würden dann eine hohe Korrelation aufweisen und deren Mittelung bietete kaum Reduktion der Varianz. Um dies zu vermeiden wird stattdessen ein Random Forest gebildet. Genau wie beim Bagging wird mit Bootstrapping gearbeitet. In diesem Fall werden jedoch statt allen Variablen nur eine bestimmte Auswahl von zufällig gewählten Prädiktoren berücksichtigt. Bei einer Anzahl von p Prädiktoren werden in der Regel $\sqrt{p}$ Variablen für jedes Modell zufällig ausgewählt, um einen Baum zu kreieren. Genau wie beim Bagging wird kein Overfitting entstehen, wenn die Anzahl der Bäume erhöht wird, sodass diese ausreichend erhöht werden kann, um eine möglichst geringe Fehlerrate zu erzeugen (James et al. 2013: 324-325). 
+
+### Anwendung in R
+
+In R existiert das Paket randomForest mit der gleichnamigen Funktion zur Erstellung dieser. Neben der Angabe der Formel und des Datensatzes, gibt es weitere Optionen. Mit nodesize kann zum Beispiel die Anzahl der Leaf Nodes pro Tree festgelegt werden. Mit Sampsize kann die Größe des Trainingssamples - bestehend aus Bootstrapping der Trainingsdaten - festgelegt werden. Per Default liegt sie bei 63,2 %. Es wird empfohlen zwischen 60 und 80 % zu bleiben, da kleinere Samples zwar schnellere Ergebnisse bringen, jedoch kann die Verzerrung dabei höher werden. Größere Samples tendieren dagegen zu Overfitting. An den Standardeinstellungen von R wurde deshalb zunächst nichts geändert.
+
+```{r warning=F}
+library(randomForest)
+tic()
+rf <- randomForest(age~., data=training_data)
+toc(log=T)
+time_rf <- unlist(tic.log())
+tic.clearlog()
+print(rf)
+```
+
+Im Output ist zunächst die Modellformel zu sehen. Anschließend der Typ Baum, der erstellt wurde (hier: Regression Tree). Per Default bildet R 500 Bäume (ntree=500). Für jedes Modell wurden hier jeweils 7 Variablen berücksichtigt. Bei Regression Trees entspricht dies in R standardmäßig der Anzahl der Variablen geilt durch drei:  mtry=max(floor(ncol(x)/3), 1).
+
+```{r}
+plot(rf) 
+```
+Plottet man das Random Forest Modell, sieht man die Anzahl der Bäume in Relation zur Error Rate (alternativ möglich: MSE). Man sieht, dass sich die Fehlerrate nach ca. 100 Bäumen stabilisiert. Die Grundeinstellung liegt mit 500 Bäumen weit über diesem Wert und sichert so Ergebnisse mit kleinstmöglichem Fehler zu, sodass dieser Wert nicht angepasst werden muss. Bei einer zu langen Laufzeit könnte diese Anzahl sogar noch optional verringert werden.
+
+Es bleibt weiterhin die Frage, ob RandomForest mit mtry=7 (Anzahl der berücksichtigten Variablen pro Split) sein volles Potenzial ausschöpft. Dies lässt sich mit sog. "Hyperparameter Tuning" testen. Im Ersten Schritt werden vergleichsweise 4, 7 und 14 Variablen berücksichtigt (durch mtry=7, stepFactor=2), wobei 14 Variablen die besten Ergebnisse in Bezug auf den OOB erreichen.
+```{r}
+set.seed(1)
+predictors <- training_data[,-1]
+age <- training_data[,1]
+tuneRF(predictors, age, ntreeTry = 300, mtry=7, stepFactor = 2, trace=T, plot=T)
+```
+
+Ausgehend davon wurde mtry mit 14 ersetzt und der gleiche Test mit den Werten 7 und 23 durchgeführt. 14 blieb die optimale Anzahl an zu berücksichtigenden Variablen pro split. 
+
+```{r}
+tuneRF(predictors, age, ntreeTry = 300, mtry=14, stepFactor = 2, trace=T, plot=T)
+```
+
+Auch bei einem kleineren stepFactor=1.2 galt 14 als der beste Wert im Vergleich mit 12 und 16. Je kleiner stepFactor jedoch gewählt wird, desto eher können sich die Ergebnisse bei jeder Wiederholung verändern. Wir übernehmen die 14 in unser tunedRF-Modell.
+
+
+```{r}
+set.seed(1)
+tic()
+tuneRF(predictors, age, ntreeTry = 500, mtry=14, stepFactor = 1.2, trace=T, plot=F)
+tunedRF <- randomForest(age~., data=training_data, mtry=14)
+toc(log=T)
+time_tunedRF <- tic.log()
+tic.clearlog()
+tunedRF
+```
+
+Nun soll erneut die Genauigkeit der Schätzung durch RMSE und MAE evaluiert werden.
+
+```{r}
+rmse_rf <- rmse(rf, testing_data)
+mae_rf <- mae(rf, testing_data)
+
+rmse_tunedRF <- rmse(tunedRF, testing_data)
+mae_tunedRF <- mae(tunedRF, testing_data)
+
+results <- rbind(results, c("Random Forest", rmse_rf, mae_rf, time_rf))
+results <- rbind(results, c("Tuned Random Forest", rmse_tunedRF, mae_tunedRF, time_tunedRF))
+
+results
+```
+Die Fehlerrate des Tuned Models war wie zu erwarten besser.
+
+## Gradient Boosting
+Gradient Boosting basiert ebenso wie der Random Forest und das Bagging auf den Decision Trees, jedoch basiert der Algorithmus auf einer anderen Grundlogik. Anstatt vieler unabhängiger Tree Modelle, werden die Trees abhängig von ihren Vorgängern gebildet.
+
+- Zuerst wird ein Decision Tree erstellt, der in den Leafs die Residuen vom Mittelwert schätzt. 
+- Anhand dessen wird die abhängige Variable bei jeder Beobachtung geupdatet, indem die Residuen des Leafs, welchem die Person zugehört, gemittelt werden und anschließend folgende Rechnung durchgeführt wird: $$ y_{i} = vorheriger Wert + Learning Rate * geschaetztes Residuum $$ 
+Die Learning Rate wird auch als Shrinkage bezeichnet und gibt an, wie schnell das Modell lernen soll. 
+- Anschließend wird basierend auf den geschätzten Werten erneut ein Decision Tree erstellt, erneut die Residuen geschätzt und anhand der Formel im vorherigen Punkt erneut $y_{i}$ aktualisiert.
+- Dies wird B ('n.trees') Mal wiederholt. 
+- Berechne den finalen Schätzer für $y_{i}$ durch: $$\overline{y} + \sum_{b=1}^{B} learning Rate * geschaetztes Residuum$$.
+
+Beim Boosting wird somit die Schätzung immer wieder auf den vorherigen Schätzungen basierend aktualisiert, anstatt wie beim Bagging und Random Forest mittels Bootstrap eine Vielzahl an Stichproben zu kreieren und für diese eigene Modelle zu erstellen. Durch dieses Verfahren wird ebenso der RMSE minimiert wie beim Random Forest oder Bagging und die Vorgehensweise wird als "mean squared error (MSE/SSE) loss function" bezeichnet (Boehmke & Greenwell 2020). Hierbei ist es wichtig, dass die Learning Rate nicht zu groß und nicht zu klein gewählt wird. Bei zu kleiner Learning Rate braucht das Modell eine Vielzahl an Iterationen und eine zu große Learning Rate könnte den wahren minimalen Wert überspringen. Der Name Gradient Boosting kommt daher, dass anstatt des SSE auch andere loss functions verwendet werden können (Boehmke & Greenwell 2020).
+
+### Anwendung in R
+
+Die folgenden Boosting-Modelle wurden mit dem 'gbm'-Paket erstellt. Weitere Pakete, die noch deutlich mehr und komplexere Einstellungsmöglichkeiten beinhalten als 'gbm', sind die Pakete 'xgboost' und 'h2o'. 
+
+```{r, message=FALSE}
+library(gbm)
+```
+
+Vorab werden für die Hyperparameter Learning Rate, Interaction Depth (die Tiefe der Bäume) und die Anzahl an Trees die Parameter an den Normen orientierend gewählt. Typische Werte für die Learning Rate sind zwischen 0.001 und 0.3, für die Interaction Depth 3 bis 8 und für die Anzahl an Trees kann zunächst eine Anzahl im Tausenderbereich gewählt werden, jedoch neigt die Anzahl an Trees zu Overfitting, weshalb die beste Anzahl noch zu evaluieren ist. Für die Anpassungsgüte des Modells wird 10-fold Cross-Validation verwendet. 
+
+```{r}
+set.seed(1)  # for reproducibility
+tic()
+boostingmodell <- gbm(
+  formula = age ~ .,
+  data = training_data,
+  distribution = "gaussian",  # SSE loss function
+  n.trees = 5000,
+  shrinkage = 0.1,
+  interaction.depth = 3,
+  n.minobsinnode = 10,
+  cv.folds = 10
+)
+toc(log=T, quiet=T)
+time_boost <- unlist(tic.log())
+boostingmodell
+```
+
+Um die Anzahl an benötigten Trees zu evaluieren, wird zunächst die Anzahl an Trees gesucht, welche den geringsten CV-Error aufweist und anschließend der RMSE berechnet. 
+```{r}
+best <- which.min(boostingmodell$cv.error)
+best
+```
+
+Unter Verwendung der angegebenen Hyperparameter wird bereits nach 64 Iterationen der minimale RMSE gefunden. 
+
+```{r}
+# Ergebnisse laden und speichern
+boost_rmse <- rmse(boostingmodell, testing_data)
+boost_rmse
+boost_mae <- mae(boostingmodell, testing_data)
+boost_mae
+results <- rbind(results, c("Boosting", boost_rmse, boost_mae, Runtime=time_boost))
+tic.clearlog()
+```
+Der dazugehörige RMSE liegt bei 9,26.
+
+Die Ergebnisse sind ebenfalls plotbar. An der grünen Kurve ist das Minimum mit der blauen gestrichelten Vertikalen verdeutlicht, dass bereits nach 64 Iterationen der geringste RMSE auftrat.
+```{r}
+# plot error curve
+gbm.perf(boostingmodell, method = "cv")
+```
+
+### Bestimmung der Hyperparameter
+
+Nachdem beim vorherigen Modell die Hyperparameter recht willkürlich gewählt wurden, wird nun gezeigt, wie diese schrittweise zu bestimmen sind, um das beste Modell zu erzielen.
+Hierzu wird zunächst die Learning Rate bestimmt, indem eine Auswahl an möglichen Werten bestimmt und der beste Wert daraus ausgewählt wird.
+
+```{r}
+tic()
+hyper_grid <- expand.grid(
+  learning_rate = c(0.3, 0.1, 0.05, 0.01, 0.005),
+  RMSE = NA,
+  trees = NA,
+  time = NA
+)
+# execute grid search
+for(i in seq_len(nrow(hyper_grid))) {
+
+  # fit gbm
+  set.seed(1)  # for reproducibility
+  train_time <- system.time({
+    m <- gbm(
+      formula = age ~ .,
+      data = training_data,
+      distribution = "gaussian",
+      n.trees = 5000, 
+      shrinkage = hyper_grid$learning_rate[i], 
+      interaction.depth = 3, 
+      n.minobsinnode = 10,
+      cv.folds = 10 
+   )
+  })
+  
+  # add SSE, trees, and training time to results
+  hyper_grid$RMSE[i]  <- sqrt(min(m$cv.error))
+  hyper_grid$trees[i] <- which.min(m$cv.error)
+  hyper_grid$Time[i]  <- train_time[["elapsed"]]
+}
+# results
+arrange(hyper_grid, RMSE)
+toc()
+```
+Der Tabelle, in welcher die Ergebnisse der möglichen Learning Rates gesammelt wurden, ist zu entnehmen, dass die Learning Rate 0.005 den geringsten RMSE erzielt.
+
+Anschließend wird die berechnete Learning Rate verwendet, um die restlichen Hyperparameter zu bestimmen. Hierzu werden erneut mögliche Werte an das Modell übergeben und anhand des erzielten RMSE die beste Kombination an Hyperparametern ausgewählt.
+```{r}
+# search grid
+tic()
+hyper_grid <- expand.grid(
+  n.trees = 6000,
+  shrinkage = 0.005,
+  interaction.depth = c(3, 5, 7),
+  n.minobsinnode = c(5, 10, 15)
+)
+
+# create model fit function
+model_fit <- function(n.trees, shrinkage, interaction.depth, n.minobsinnode) {
+  set.seed(1)
+  m <- gbm(
+    formula = age ~ .,
+    data = training_data,
+    distribution = "gaussian",
+    n.trees = n.trees,
+    shrinkage = shrinkage,
+    interaction.depth = interaction.depth,
+    n.minobsinnode = n.minobsinnode,
+    cv.folds = 10
+  )
+  # compute RMSE
+  sqrt(min(m$cv.error))
+}
+
+# perform search grid with functional programming
+hyper_grid$rmse <- purrr::pmap_dbl(
+  hyper_grid,
+  ~ model_fit(
+    n.trees = ..1,
+    shrinkage = ..2,
+    interaction.depth = ..3,
+    n.minobsinnode = ..4
+    )
+)
+
+# results
+arrange(hyper_grid, rmse)
+toc()
+```
+
+Widerum wird dieser Tabelle entnommen, dass die beste Kombination eine Interaction Depth von 7 und eine minimale Anzahl an Beobachtungen in den Nodes 10 ist mit einem RMSE von 8,46. 
+
+Somit hat sich der RMSE von der willkürlichen Auswahl, an typischen Werten orientierend, zu getunten Hyperparametern um ~ 0,8 verbessert. Bedenkt man die Systemlaufzeit des Tunings von insgesamt rund 8-10 Minuten, lohnt sich diese Verbesserung.
+
+### Variable Importance
+
+Zuletzt wird noch für das finale getunte Boosting-Modell die Variable Importance ermittelt. Auch hier bedeutet die Variable Importance bzw. beim Boosting der relative Einfluss, inwiefern die Variablen den MSE durchschnittlich senken. 
+
+```{r}
+library(gbm)
+tic()
+finalboost <- gbm(
+  formula = age ~ .,
+  data = training_data,
+  distribution = "gaussian",  # SSE loss function
+  n.trees = 5000,
+  shrinkage = 0.005,
+  interaction.depth = 7,
+  n.minobsinnode = 10,
+  cv.folds = 10
+)
+toc(log=T, quiet=T)
+time_boost <- unlist(tic.log()) #Runtime speichern
+
+summary(
+  finalboost, 
+  cBars = 8,
+  method = relative.influence, 
+  las = 2,
+  cex.lab=1)
+```
+
+Ebenso wie beim Bagging haben erneut die Berufstätigkeit nach Art der Erwerbstätigkeit und der Heiratsstatus eine hohe Variable Importance. Eine niedrige Variable Importance haben erneut das Geschlecht, die Antwortbereitschaft des Befragten und etwas überraschend, hat die Erwerbstätigkeit für sich die niedrigste Importance.
+
+Zum Vergleich der Modelle werden die Ergebnisse erneut gesammelt.
+```{r}
+boost_rmset <- rmse(finalboost, testing_data)
+boost_rmset
+boost_maet <- mae(finalboost, testing_data)
+results <- rbind(results, c("Boosting Tuned", boost_rmset, boost_maet, Runtime=time_boost))
+tic.clearlog()
+```
+
+
+Die Syntax im Kapitel zu Boosting ist Boehmke und Greenwell (2020) sowie Boehmke (2018) entnommen und den Zwecken angepasst worden. 
+
+
+# Linear Model
+
+Um die Tree Models als Machine Learning Methode zu bewerten, werden sie mit der klassischen OLS-Regression verglichen. Der theoretische Hintergrund zu klassischen linearen Modellen wird hier vorausgesetzt.
+
+## Klassisches Lineares Modell
+
+```{r}
+set.seed(1)
+tic()
+linMod <- lm(age~., data=training_data)
+toc(log=T)
+time_linMod <- tic.log()
+tic.clearlog()
+
+rmse_linMod <-  rmse(linMod, data=testing_data)
+mae_linMod <- mae(linMod, data=testing_data)
+
+results <- rbind(results, c("Classic Linear Model", rmse_linMod, mae_linMod, time_linMod))
+results
+```
+Das klassische Lineare Modell zeigt eine ähnlich "schlechte" Schätzung wie der einfache Regression Tree. Das liegt natürlich auch daran, dass alle Variablen ungefiltert ausgewählt wurden, es keine theoretische Vorüberlegung gab und vielen potenziellen weiteren Problemen mit dieser Herangehensweise.
+Um nicht alle Variablen auszuwählen, sondern nur die, die das Informationskriterium AIC mit jeder neu aufgenommenen Variable verbessern, wird eine Stepwise Backward Selection durchgeführt. Alternativ wäre auch eine Backward Selection oder die Verwendung eines anderen Informationskriteriums (z. B. BIC) möglich gewesen.
+```{r, results='hide'}
+library(stats)
+tic()
+backwardMod <- step(linMod)
+toc(log=T)
+time_backward <- tic.log()
+tic.clearlog()
+```
+
+```{r}
+rmse_backward <-  rmse(backwardMod, data=testing_data)
+mae_backward <- mae(backwardMod, data=testing_data)
+
+results <- rbind(results, c("Backward Selected Linear Model", rmse_backward, mae_backward, time_backward))
+
+results
+```
+
+Hier wird ein komprimierteres Modell erstellt, was die Fehlerrate etwas verbessert.
+
+## Random Forest mit LM
+
+Zuletzt soll ein Lineares Modell erstellt werden, welches funktioniert wie ein Random Forest. Zur Veranschaulichung wird der Code zunächst als vereinfachter Pseudo Code präsentiert:
+
+---
+
+**Pseudo Code**
+for i=1 to 500
+  sample UVs
+  bootstrap from training_data
+  backward selected linear model with AV=age and UVs=sample of all UVs
+  predict age for data=testing
+end for
+average predictions for age
+RMSE = sqrt(mean((observed - predicted_average)^2))
+
+---
+
+Es werden insgesamt 500 Lineare Modelle gebildet, die der Methode der Backward Selection anhand des AIC folgen. In jedem Modell werden nur eine Auswahl aller möglichen unabhängigen Variablen verwendet. In diesem Fall sind es 5. Auch die Trainingsdaten für jedes Modell sehen anders aus, da sie jeweils einen Bootstrap aus den Originaltrainingsdaten darstellen. Der Bootstrap hat dabei genauso viele Observationen wie die Originaltrainingsdaten. Anschließend wird ein klassisches Lineares Modell geschätzt und anhand dessen eine Schätzung für die Testdaten vorgenommen. Diese Schätzung wird in einem Data Frame gespeichert. Nach der Schleife wird der Mittelwert der Schätzungen als finales Schätzergebnis verwendet.
+
+```{r, results='hide'}
+rows <- rownames(training_data)
+pred_df <- data.frame(rows)
+av="age"
+all_uv <- names(training_data[- which(names(training_data)==av)]) #alle      Variablennamen
+set.seed(1)
+tic()
+for (i in 1:500){
+   sample_uv <- sample(all_uv, size=round(sqrt(NROW(all_uv)))) #sample Variables
+  uv <- paste(sample_uv, collapse=" + ") 
+  variables <- c(av, uv)
+  formel <- paste(variables, collapse="~") 
+  boot_train <- sample(training_data, nrow(training_data), replace=T) #bootstrap observations
+  lm_model <- lm(formula=formel, data=boot_train) #linear model
+  step_mod <- step(lm_model)
+  newcol <- as.numeric(predict(step_mod, data=testing_data)) #save predictions
+  pred_df[ , i+1] <- newcol
+}
+toc(log=T)
+time_LM_RF <- tic.log()
+tic.clearlog()
+```
+
+```{r}
+pred_df$mean_pred <- rowMeans(pred_df[-1]) #calculate mean of all predictions for each obs
+rmse_LM_RF <-  mean((training_data$age - pred_df$mean_pred)^2) %>% sqrt()
+mae_LM_RF <- mean(abs(training_data$age - pred_df$mean_pred))
+results <- rbind(results, c("Linear Model like Random Forest", rmse_LM_RF, mae_LM_RF, time_LM_RF))
+results
+```
+
+Unter allen Modellen stellt diese Version mit Abstand die schlechteste Schätzung. Dies ist dadurch zu begründen, dass der Variablenselektion keine theoretischen Überlegungen zugrunde liegen. Im Datensatz sind viele Variablen enthalten, die nur schlechte Prognosen über das Alter zulassen. Aus diesem Grund werden viele schlechte Schätzungen enthalten sein. 
+Vermutlich liegt das daran, dass in einigen erzeugten linearen Modelle nur sehr schwache Variablen enthalten waren, die mit ihren Schätzungen den Durchschnitt stark verzerren. Dies könnte vermieden werden, wenn eine bessere Auswahl an Variablen gefunden wird. Eine weitere Idee könnte es sein, bestimmte erstellte Modelle auszuschließen, weil beispielsweise das R² nicht groß genug ist, das Modell also nicht ausreichend Varianz erklären kann.
+Weiterhin dauert die Methode sehr lange, wenn zusätzlich Backward Selection angewandt wird.
+
+# Vergleich der Modelle
+
+Nachdem nun alle Modelle vorgestellt und berechnet wurden, müssen sie noch verglichen werden.
+
+```{r}
+results$rmse <- round(as.numeric(results$rmse), digits=4)
+results$MAE <- round(as.numeric(results$MAE), digits=4)
+print(results)
+```
+Vergleicht man die Linearen Modelle (Classic Linear Model, Backward Selected Linear Model by AIC und Linear Model like Random Forest) mit den Baummodellen (Regression Tree, Pruned Regression Tree, Random Forest, Tuned Random Forest, Bagging und Boosting Tuned), so lässt sich feststellen, dass sich die Modelle in ihren Fehlern stark ähneln. Einzig das selbst erstellte Lineare Modell, das nach dem Beispiel des Random Forests gebaut werden soll, schneidet besonders schlecht ab.
+Unter den restlichen Modellen bietet der Regression Tree die schlechteste Schätzung gefolgt vom Pruned Regression Tree und dem Classic Linear Model. Im Mittelfeld liegen die Methoden Bagging OOB und das Backward Selected Linear Model. Boosting und Random Forest können als die besten Methoden identifiziert werden. Besonders mit Tuning verbessert sich die Schätzung noch zusätzlich. 
+Weiterhin sollte betont werden, dass sich diese Ergebnisse nicht verallgemeinern lassen. Wenn ein starker linearer Zusammenhang zwischen den unabhängigen Variablen und der abhängigen besteht, dann können die Ergebnisse für lineare Modelle besser ausfallen. Baummodelle eignen sich besonders gut bei weniger linearen Zusammenhängen und berücksichtigen Interaktionseffekte. Natürlich können Interaktionseffekte auch in linearen Modellen berücksichtigt werden, aber auch dies sollte eher auf Basis von Vorüberlegungen passieren. Ein automatisiertes, exploratives Verfahren in R wurde nicht getestet. 
+Die Fehlerrate der Tree Models untereinander ist relativ ähnlich und unterscheidet sich nur in der ersten Nachkommastelle. Schlechtere Ergebnisse erzielen der einfache und geprunte Regression Tree. Ihr Vorteil besteht jedoch darin, dass sie leicht zu erstellen und auch für Laien einfach zu interpretieren sind. Sie lassen sich darüber hinaus anschaulich grafisch darstellen. Random Forest oder Boosting ist aufgrund der geringen Fehlerrate zu präferieren. Hier zeigte sich auch die besondere Relevanz des Tunings. Ein weiterer Vorteil ist ihre Robustheit. Ein Nachteil der einfachen Decision Trees ist nämlich, dass sie eine sehr starke Abhängigkeit von ihren Trainingsdaten aufweisen. Eine Änderung im Trainingsdatensatz kann zu einem stark veränderten Decision Tree führen, was wiederrum die Schätzung stark beeinflussen kann. 
+
+Die Zeiten, die R zur Berechnung benötigt hat, unterscheiden sich zwar stark, liegen jedoch bei maximal knapp über einer Minute, sodass dies - zumindest für dieses Beispiel - vernachlässigt werden kann. Der einzige Ausreißer ist das selbst erstellte Linear Model Like Random Forest, was vergleichsweise lange braucht. Was jedoch teils einige Zeit benötigt, ist das Tuning der Modelle. Die Systemlaufzeit ist jedoch im Verhältnis zur Verbesserung der Schätzungen sehr positiv. 
+
+
+# Fazit
+
+In dieser Ausarbeitung wurden verschiedene Tree Models vorgestellt. Mithilfe dieser sollte das Alter der Allbus-Befragten geschätzt werden. Vergleichend wurden lineare Modelle sowie ein lineares Modell im Stil eines Random Forests erstellt. Die komplexeren Tree Models schnitten dabei am besten ab. Die besten Ergebnisse lieferten Tuned Boosting und Tuned Random Forest.
+
+Zusammenfassend lässt sich festhalten, dass Tree Models einen großen Vorteil bieten können. Sie boten in unserem Beispiel eine bessere Schätzung als einfache Lineare Modelle. Innerhalb der Tree Models gibt es verschiedene Möglichkeiten zur Schätzung, die Vor- und Nachteile bieten. Für Laien können einfache Decision Trees ausreichen, bessere Schätzergebnisse bringen jedoch Boosting oder Random Forest inklusive Tuning. 
+
+Während die Tree Models und verschiedene Variationen ihrer ausführlich betrachtet wurden, hätten auch für lineare Modelle noch weitere Verfahren ausprobiert werden können. U. a. ließe sich ausprobieren, ob die Aufnahme von Interaktionseffekten oder auch die Potenzierung von Effekten explorativ möglich ist und bessere Schätzungen liefert.
+In dieser Ausarbeitung gab es keine konkrete inhaltliche Fragestellung über die Altersschätzung und die Variablenauswahl verlief nicht theoriebasiert. Eine weitere interessante Analyse könnte es also sein, zu testen, ob sich Tree Models durch ihre Art der Variablenselektion besonders gut zur explorativen Schätzung eignen.
+Auch das Linear Model like Random Forest birgt sicherlich Verbesserungspotenzial. Dieses sollte bei einer geschickteren Variablenauswahl erneut getestet werden und könnte dann zu besseren Ergebnissen führen.
+
+# Literatur
+Boehmke, B. (2018): UC Business Analytics R Programming Guide.  http://uc-r.github.io/gbm_regression (letzter Zugriff: 03.08.2021)
+
+Boehmke, B.; Greenwell, B. M. (2019): Hands-On Machine Learning With R. https://bradleyboehmke.github.io/HOML/gbm.html (letzter Zugriff: 03.08.2021)
+
+Chai, T. ; Draxler, R. R. (2014): Root mean square error (RMSE) or mean absolute error (MAE), in: Geoscientific Model Development: Discussions, 7, S. 1525–1534, Copernicus Publications.
+
+Hastie, T. ; Tibshirani, R. ; Friedman, J. (2001): The Elements of Statistical Learning, Data Mining, Inference, and Prediction. Springer.
+
+James, G.; Witten, D.; Hastie, T.; Tibshirani, R. (2013): An Introduction to Statistical Learning with Applications in R. Springer. Cham.
+
+Statista (2021): Altersmedian der Weltbevölkerung von 1990 bis 2020 und Prognosen bis 2100 (in Jahren). https://de.statista.com/statistik/daten/studie/159834/umfrage/altersmedian-der-weltbevoelkerung/
+
+# Daten
+ALLBUS (2016): ZA5250-v2-1-0.dta, Leibniz-Institut für Sozialwissenschaften.
